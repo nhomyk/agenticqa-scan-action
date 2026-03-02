@@ -1,0 +1,91 @@
+name: 'AgenticQA Architecture Scan'
+description: 'Map every integration point in your AI codebase — 13 CWE categories, SARIF output, test coverage gaps. No API key.'
+author: 'nhomyk'
+
+branding:
+  icon: 'search'
+  color: 'orange'
+
+inputs:
+  repo-path:
+    description: 'Path to the repository to scan (default: current directory)'
+    required: false
+    default: '.'
+
+  fail-on-critical:
+    description: 'Exit with code 1 if any critical integration areas are found'
+    required: false
+    default: 'false'
+
+  fail-on-score:
+    description: 'Exit with code 1 if attack surface score meets or exceeds this value (0 = disabled)'
+    required: false
+    default: '0'
+
+  sarif-output:
+    description: 'Filename for the SARIF output file'
+    required: false
+    default: 'agenticqa-scan-results.sarif'
+
+  upload-sarif:
+    description: 'Upload SARIF to GitHub Code Scanning (requires security-events: write permission)'
+    required: false
+    default: 'true'
+
+  category:
+    description: 'GitHub Code Scanning SARIF category (useful when running multiple scans)'
+    required: false
+    default: 'agenticqa-architecture'
+
+outputs:
+  findings-count:
+    description: 'Total number of integration areas found across all 13 categories'
+    value: ${{ steps.scan.outputs.findings_count }}
+  critical-count:
+    description: 'Number of critical-severity integration areas (SHELL_EXEC)'
+    value: ${{ steps.scan.outputs.critical_count }}
+  attack-surface-score:
+    description: 'Attack surface score 0–100 (higher = more exposed)'
+    value: ${{ steps.scan.outputs.attack_surface_score }}
+  test-coverage:
+    description: 'Test coverage confidence 0–100 for detected integration areas'
+    value: ${{ steps.scan.outputs.test_coverage }}
+  untested-count:
+    description: 'Number of integration areas with no test coverage'
+    value: ${{ steps.scan.outputs.untested_count }}
+  sarif-file:
+    description: 'Path to the generated SARIF output file'
+    value: ${{ inputs.sarif-output }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install AgenticQA scanner
+      shell: bash
+      run: |
+        pip install --quiet --upgrade pip
+        pip install --quiet \
+          "agenticqa @ git+https://github.com/nhomyk/AgenticQA.git#subdirectory=AgenticQA"
+
+    - name: Run Architecture Scan
+      id: scan
+      shell: bash
+      env:
+        SCAN_REPO_PATH: ${{ inputs.repo-path }}
+        SARIF_OUTPUT: ${{ inputs.sarif-output }}
+        FAIL_ON_CRITICAL: ${{ inputs.fail-on-critical }}
+        FAIL_ON_SCORE: ${{ inputs.fail-on-score }}
+      run: python ${{ github.action_path }}/scan.py
+
+    - name: Upload SARIF to GitHub Code Scanning
+      if: inputs.upload-sarif == 'true' && always()
+      uses: github/codeql-action/upload-sarif@v4
+      with:
+        sarif_file: ${{ inputs.sarif-output }}
+        category: ${{ inputs.category }}
+      continue-on-error: true
